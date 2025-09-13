@@ -1,0 +1,13 @@
+{
+  "accounts_filename": "acc.txt",
+  "proxies_filename": "proxies.txt", 
+  "max_browsers": 10,
+  "browser_headless": false,
+  "sadcaptcha_api_key": "",
+  "captcha_check_timeout": 60,
+  "page_load_timeout": 30,
+  "threads": 1,
+  "delay_min": 3,
+  "delay_max": 8,
+  "_security_note": "Секретные ключи хранятся в переменных окружения SADCAPTCHA_API_KEY"
+}
