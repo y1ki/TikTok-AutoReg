@@ -32,7 +32,7 @@
 1. Клонируйте репозиторий:
 
 ```bash
-git clone <URL_РЕПОЗИТОРИЯ>
+git clone [<URL_РЕПОЗИТОРИЯ>](https://github.com/y1ki/TikTok-AutoReg)
 cd TikTok-AutoReg
 ```
 
