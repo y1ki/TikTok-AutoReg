@@ -40,7 +40,7 @@ class Config:
     page_load_timeout: int = 30
     captcha_check_timeout: int = 60
     action_delay: float = 0.5
-    
+
     # Задержки между регистрациями
     delay_min: int = 60
     delay_max: int = 180
@@ -249,7 +249,7 @@ class DataGenerator:
     async def generate_email(window_id: int = 0) -> Dict[str, str]:
         """Создает временный email через API mail.tm с синхронизацией запросов"""
         global _last_email_request_time, _email_request_lock
-        
+
         import urllib.request
         import urllib.parse
         import json
@@ -258,22 +258,22 @@ class DataGenerator:
         global _email_request_lock
         if _email_request_lock is None:
             _email_request_lock = asyncio.Lock()
-        
+
         async with _email_request_lock:
             # Логи email generation отключены
             current_time = time.time()
             time_since_last_request = current_time - _last_email_request_time
-            
+
             # ИСПРАВЛЕНИЕ: Увеличиваем задержку до 3 секунд для избежания 429 ошибок
             if time_since_last_request < 3.0:
                 wait_time = 3.0 - time_since_last_request
                 # Ожидание
                 await asyncio.sleep(wait_time)
-            
+
             # ИСПРАВЛЕНИЕ: Обновляем время СРАЗУ, чтобы заблокировать следующий запрос
             _last_email_request_time = time.time()
             # Время зарезервировано
-            
+
             try:
                 # ИСПРАВЛЕНИЕ: Добавляем повторные попытки при ошибках с правильным cooldown
                 max_retries = 3
@@ -288,9 +288,9 @@ class DataGenerator:
                                 # Доп. ожидание
                                 await asyncio.sleep(wait_time)
                             _last_email_request_time = time.time()
-                        
+
                         # Получаем домены
-                        
+
                         # 1. Получаем доступные домены
                         with urllib.request.urlopen("https://api.mail.tm/domains", timeout=10) as response:
                             if response.status == 200:
@@ -313,7 +313,7 @@ class DataGenerator:
                             wait_time = 3.0 - time_since_last
                             # Ожидание между запросами
                             await asyncio.sleep(wait_time)
-                        
+
                         _last_email_request_time = time.time()  # Обновляем перед POST
 
                         # 2. Генерируем данные для аккаунта
@@ -341,7 +341,7 @@ class DataGenerator:
                             if response.status in [200, 201]:
                                 account_info = json.loads(response.read().decode('utf-8'))
                                 # Email аккаунт создан
-                                
+
                                 return {
                                     "email": email,
                                     "password": password,
@@ -351,18 +351,18 @@ class DataGenerator:
                                 raise Exception(f"Rate limit exceeded (429) - слишком много запросов")
                             else:
                                 raise Exception(f"Ошибка создания аккаунта: {response.status}")
-                                
+
                         # Если дошли сюда - успех, выходим из цикла
                         break
-                        
+
                     except Exception as retry_e:
                         # Попытка неудачна
-                        
+
                         # Если это последняя попытка, прерываем
                         if attempt == max_retries - 1:
                             # Все попытки исчерпаны
                             raise retry_e
-                        
+
                         # Для следующей попытки cooldown будет обработан в начале цикла
                         # Переходим к след. попытке
 
@@ -371,11 +371,11 @@ class DataGenerator:
                 # КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Используем только поддерживаемые домены для fallback
                 username = ''.join(random.choices(string.ascii_lowercase, k=random.randint(6, 12)))
                 username += str(random.randint(100, 9999))
-                
+
                 # Используем только 1secmail.com - единственный поддерживаемый домен для автоматического получения кодов
                 fallback_email = f"{username}@1secmail.com"
                 # Fallback email
-                
+
                 return {
                     "email": fallback_email,
                     "password": "fallback",
@@ -387,19 +387,19 @@ class DataGenerator:
         """Генерирует пароль в формате: 1 большая буква + 5 маленьких букв + _ + 4 цифры"""
         # 1 большая буква
         uppercase = random.choice(string.ascii_uppercase)
-        
+
         # 5 маленьких букв
         lowercase = ''.join(random.choices(string.ascii_lowercase, k=5))
-        
+
         # Подчеркивание
         underscore = '_'
-        
+
         # 4 цифры
         digits = ''.join(random.choices(string.digits, k=4))
-        
+
         # Собираем пароль: Abcdef_1234
         password = uppercase + lowercase + underscore + digits
-        
+
         return password
 
     @staticmethod
@@ -456,6 +456,53 @@ class DataGenerator:
         ]
         return random.choice(user_agents)
 
+
+async def _click_skip_button(page) -> bool:
+    """
+    Ищет и кликает кнопку 'Пропустить' / 'Skip' на странице TikTok.
+    Использует XPath через JS — работает с любым типом элемента (div, a, span, button).
+    Возвращает True если кнопка найдена и нажата.
+    """
+    for text in ['Пропустить', 'Skip']:
+        try:
+            clicked = await page.evaluate(f"""
+                () => {{
+                    const xpath = "//*[normalize-space(text())='{text}' or normalize-space(.)='{text}']";
+                    const result = document.evaluate(
+                        xpath, document, null,
+                        XPathResult.ORDERED_NODE_SNAPSHOT_TYPE, null
+                    );
+                    for (let i = 0; i < result.snapshotLength; i++) {{
+                        const el = result.snapshotItem(i);
+                        const rect = el.getBoundingClientRect();
+                        if (rect.width > 0 && rect.height > 0) {{
+                            el.click();
+                            return true;
+                        }}
+                    }}
+                    return false;
+                }}
+            """)
+            if clicked:
+                logger.success(f"✅ Нажат элемент 'Пропустить' (JS/XPath)")
+                return True
+        except Exception:
+            pass
+
+    # Запасной вариант: Playwright get_by_text
+    for text in ['Пропустить', 'Skip']:
+        try:
+            loc = page.get_by_text(text, exact=True)
+            if await loc.count() > 0:
+                await loc.first.click()
+                logger.success(f"✅ Нажат элемент '{text}' (locator)")
+                return True
+        except Exception:
+            pass
+
+    return False
+
+
 class TikTokRegistration:
     """Основной класс для регистрации аккаунтов TikTok"""
 
@@ -485,7 +532,7 @@ class TikTokRegistration:
         """Создаёт браузер в анонимном режиме"""
         # Получаем прокси
         proxy = self.proxy_manager.get_next_proxy()
-        
+
         # Настройки браузера с инкогнито
         browser_options = {
             'headless': self.config.browser_headless,
@@ -495,15 +542,15 @@ class TikTokRegistration:
                 '--disable-features=VizDisplayCompositor'
             ]
         }
-        
+
         if proxy:
             browser_options['proxy'] = proxy
             logger.info(f"🔒 Окно {browser_id}: используем прокси: {proxy['server']}")
-        
+
         # Используем глобальный playwright экземпляр
         p = await async_playwright().start()
         browser = await p.chromium.launch(**browser_options)
-        
+
         # Создаём анонимный контекст
         context = await browser.new_context(
             user_agent=self.data_generator.get_random_user_agent(),
@@ -514,9 +561,9 @@ class TikTokRegistration:
             accept_downloads=False,
             ignore_https_errors=True
         )
-        
+
         logger.info(f"🕵️ Окно {browser_id}: создан в анонимном режиме")
-        
+
         return browser, context
 
     async def register_account(self) -> bool:
@@ -632,7 +679,7 @@ class TikTokRegistration:
         """Обрабатывает всплывающие окна с условиями использования"""
         try:
             await asyncio.sleep(2)  # Ждем появления модальных окон
-            
+
             # Ищем кнопки принятия условий
             accept_buttons = [
                 'button:has-text("Принять")',
@@ -644,7 +691,7 @@ class TikTokRegistration:
                 '[data-e2e="accept-button"]',
                 '[data-testid="accept-button"]'
             ]
-            
+
             for selector in accept_buttons:
                 try:
                     button = await page.query_selector(selector)
@@ -654,7 +701,7 @@ class TikTokRegistration:
                         return True
                 except:
                     continue
-                    
+
             return False
         except Exception:
             return False
@@ -1453,15 +1500,23 @@ class TikTokRegistration:
                         except:
                             continue
 
-                    # Ждем появления поля для никнейма
-                    if username:
+                    # Ждем навигации после кода подтверждения
+                    await asyncio.sleep(3)
+                    current_url_after_code = page.url
+
+                    if 'create-username' in current_url_after_code and not username:
+                        logger.info("⏭️  Никнейм не задан — автоматически пропускаем...")
+                        skip_clicked = await _click_skip_button(page)
+                        if not skip_clicked:
+                            logger.warning("❌ Кнопка 'Пропустить' не найдена на странице create-username")
+
+                    elif username:
                         logger.info("👤 Ожидаем появления поля для никнейма...")
-                        await asyncio.sleep(3)
 
                         # Ищем поле для имени пользователя
                         username_selectors = [
                             'input[placeholder*="имя"]',
-                            'input[placeholder*="пользовател"]', 
+                            'input[placeholder*="пользовател"]',
                             'input[placeholder*="username"]',
                             'input[placeholder*="ник"]',
                             'input[data-testid*="username"]',
@@ -1476,17 +1531,15 @@ class TikTokRegistration:
                                 if username_input:
                                     logger.info(f"✅ Найдено поле никнейма: {selector}")
                                     break
-                            except:
+                            except Exception:
                                 continue
 
                         if username_input:
                             try:
-                                # Очищаем поле и вводим никнейм
                                 await username_input.fill('')
                                 await username_input.type(username, delay=100)
                                 logger.success(f"✅ Никнейм {username} введен!")
 
-                                # Нажимаем кнопку регистрации
                                 await asyncio.sleep(2)
 
                                 registration_buttons = await page.query_selector_all('button')
@@ -1494,12 +1547,12 @@ class TikTokRegistration:
                                     try:
                                         btn_text = await button.inner_text()
                                         is_enabled = await button.is_enabled()
-                                        if (any(word in btn_text.lower() for word in ['регистрация', 'register', 'создать', 'create', 'далее', 'next']) 
-                                            and is_enabled):
+                                        if (any(word in btn_text.lower() for word in ['регистрация', 'register', 'создать', 'create', 'далее', 'next'])
+                                                and is_enabled):
                                             await button.click()
                                             logger.success(f"✅ Нажата кнопка регистрации: {btn_text}")
                                             break
-                                    except:
+                                    except Exception:
                                         continue
 
                             except Exception as e:
@@ -1565,6 +1618,23 @@ class TikTokRegistration:
                     'welcome' in current_url or 'onboarding' in current_url or
                     'verification' in current_url or 'signup' not in current_url):
                     logger.success("🎉 Регистрация завершена успешно!")
+                    return True
+
+                # Страница создания никнейма — предлагаем пропустить
+                if 'create-username' in current_url:
+                    logger.warning("=" * 55)
+                    logger.warning("👤 Страница создания никнейма (create-username)")
+                    logger.warning("📌 Нажмите Enter чтобы пропустить...")
+                    logger.warning("=" * 55)
+
+                    loop = asyncio.get_event_loop()
+                    await loop.run_in_executor(None, input, "")
+
+                    skip_clicked = await _click_skip_button(page)
+                    if not skip_clicked:
+                        logger.warning("❌ Кнопка 'Пропустить' не найдена")
+
+                    await asyncio.sleep(3)
                     return True
 
                 # Проверяем появилось ли поле для кода подтверждения
@@ -1839,13 +1909,13 @@ class TikTokRegistration:
             for attempt in range(6):  # 6 попыток по 5 секунд
                 try:
                     logger.info(f"Попытка {attempt + 1}/6 получения писем...")
-                    
+
                     # Пробуем разные API endpoints
                     for base_url in api_endpoints:
                         try:
                             # Получаем список писем
                             messages_url = f"{base_url}?action=getMessages&login={username}&domain=1secmail.com"
-                            
+
                             # Добавляем user-agent чтобы избежать блокировки
                             req = urllib.request.Request(messages_url)
                             req.add_header('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36')
@@ -1869,7 +1939,7 @@ class TikTokRegistration:
 
                                                 # Получаем содержимое письма
                                                 msg_url = f"{base_url}?action=readMessage&login={username}&domain=1secmail.com&id={message['id']}"
-                                                
+
                                                 msg_req = urllib.request.Request(msg_url)
                                                 msg_req.add_header('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36')
                                                 msg_req.add_header('Accept', 'application/json')
@@ -1881,7 +1951,7 @@ class TikTokRegistration:
 
                                                         # Ищем код в тексте
                                                         text_content = msg_data.get('textBody', '') + ' ' + msg_data.get('htmlBody', '')
-                                                        
+
                                                         # Ищем 6-значный код
                                                         code_match = re.search(r'\b\d{6}\b', text_content)
                                                         if code_match:
@@ -1892,7 +1962,7 @@ class TikTokRegistration:
                                         break  # Если нашли сообщения через этот endpoint, не пробуем другие
                                     else:
                                         logger.info(f"Писем пока нет через {base_url}")
-                                        
+
                         except HTTPError as he:
                             logger.warning(f"HTTP ошибка для {base_url}: {he.code} {he.reason}")
                             if he.code == 403:
@@ -1908,7 +1978,7 @@ class TikTokRegistration:
                     # Ждем перед следующей попыткой
                     if attempt < 5:  # Не ждем после последней попытки
                         await asyncio.sleep(5)
-                        
+
                 except Exception as e:
                     logger.error(f"Ошибка на попытке {attempt + 1}: {e}")
                     if attempt < 5:
@@ -1972,34 +2042,34 @@ class TikTokRegistration:
         """Параллельная регистрация: 1 окно = 1 аккаунт"""
         logger.info(f"🚀 Начинаем параллельную регистрацию {total_count} аккаунтов")
         logger.info(f"💻 Максимум одновременных окон: {windows_count} (по 1 аккаунту на окно)")
-        
+
         start_time = time.time()
-        
+
         # Создаём задачи для каждого аккаунта
         semaphore = asyncio.Semaphore(windows_count)  # Ограничиваем одновременные окна
-        
+
         window_tasks = []
         for account_number in range(1, total_count + 1):
             task = asyncio.create_task(
                 self.single_account_worker(account_number, total_count, semaphore)
             )
             window_tasks.append(task)
-        
+
         try:
             # Запускаем все задачи параллельно
             results = await asyncio.gather(*window_tasks, return_exceptions=True)
-            
+
             # Подсчитываем успешные результаты
             successful_results = sum(1 for result in results if result is True)
-            
+
         except KeyboardInterrupt:
             logger.warning("⚠️ Регистрация прервана пользователем")
-        
+
         # Статистика
         end_time = time.time()
         duration = end_time - start_time
         successful = len(self.successful_accounts)
-        
+
         logger.info("=" * 50)
         logger.info("СТАТИСТИКА ПАРАЛЛЕЛЬНОЙ РЕГИСТРАЦИИ")
         logger.info("=" * 50)
@@ -2011,41 +2081,41 @@ class TikTokRegistration:
         logger.info(f"Время выполнения: {duration/60:.1f} минут")
         logger.info(f"Ускорение: в ~{windows_count:.1f} раз быстрее!")
         logger.info("=" * 50)
-        
+
         if successful > 0:
             logger.success(f"Аккаунты сохранены в файл: {self.accounts_output_filename}")
-    
+
     async def single_account_worker(self, account_number: int, total_count: int, semaphore: asyncio.Semaphore) -> bool:
         """Обрабатывает 1 аккаунт в отдельном окне"""
         async with semaphore:  # Ограничиваем количество одновременных окон
             logger.info(f"🚀 Окно {account_number}: стартуем регистрацию {account_number}/{total_count}")
-            
+
             try:
                 # Создаём отдельное окно для этого аккаунта
                 browser, context = await self.create_browser_context(account_number)
-                
+
                 try:
                     # Регистрируем 1 аккаунт
                     success = await self.register_account_with_context(context, account_number)
-                    
+
                     if success:
                         logger.success(f"✅ Окно {account_number}: аккаунт успешно зарегистрирован! ({account_number}/{total_count})")
                         return True
                     else:
                         logger.error(f"❌ Окно {account_number}: регистрация неудачна ({account_number}/{total_count})")
                         return False
-                        
+
                 finally:
                     # Закрываем окно сразу после регистрации
                     await context.close()
                     await browser.close()
                     logger.info(f"🔒 Окно {account_number}: закрыто")
-                    
+
                     # Короткая пауза между запусками
                     delay = random.uniform(self.config.delay_min, self.config.delay_max)
                     logger.info(f"⏱️ Окно {account_number}: пауза {delay:.1f}с")
                     await asyncio.sleep(delay)
-                    
+
             except Exception as e:
                 logger.error(f"❌ Окно {account_number}: критическая ошибка: {e}")
                 return False
@@ -2053,7 +2123,7 @@ class TikTokRegistration:
     async def _wait_for_verification_code(self, account_id: str, window_id: int) -> Optional[str]:
         """Ожидает получения кода подтверждения"""
         logger.info(f"📬 Окно {window_id}: ожидаем код подтверждения...")
-        
+
         # Берем данные email из последнего созданного аккаунта для этого процесса
         try:
             # Попытка получения кода через mail.tm
@@ -2066,11 +2136,11 @@ class TikTokRegistration:
                 )
                 if code:
                     return code
-            
+
             # Fallback к улучшенному 1secmail если не получилось
             code = await self.get_verification_code_from_1secmail_improved(email_data['email'])
             return code if code else None
-            
+
         except Exception as e:
             logger.error(f"❌ Окно {window_id}: ошибка получения кода: {e}")
             return None
@@ -2079,7 +2149,7 @@ class TikTokRegistration:
         """Вводит код подтверждения на странице"""
         try:
             logger.info(f"🔑 Окно {window_id}: вводим код подтверждения: {verification_code}")
-            
+
             # Ищем поле для ввода кода
             code_selectors = [
                 'input[name*="verification"], input[placeholder*="verification"]',
@@ -2088,7 +2158,7 @@ class TikTokRegistration:
                 'input[type="text"][maxlength="4"]',
                 'input[data-testid*="verification"], input[data-testid*="code"]'
             ]
-            
+
             code_input = None
             for selector in code_selectors:
                 try:
@@ -2097,18 +2167,18 @@ class TikTokRegistration:
                     break
                 except:
                     continue
-            
+
             if code_input:
                 await page.fill(code_input, verification_code)
                 logger.info(f"✅ Окно {window_id}: код введён в поле")
-                
+
                 # Ищем кнопку подтверждения
                 submit_selectors = [
                     'button:has-text("Verify")', 'button:has-text("Подтвердить")',
                     'button:has-text("Submit")', 'button:has-text("Continue")',
                     'button[type="submit"]', 'div[role="button"]:has-text("Verify")'
                 ]
-                
+
                 for selector in submit_selectors:
                     try:
                         await page.wait_for_selector(selector, timeout=5000)
@@ -2117,36 +2187,36 @@ class TikTokRegistration:
                         break
                     except:
                         continue
-                
+
                 await asyncio.sleep(3)  # Ждём обработки
             else:
                 logger.error(f"❌ Окно {window_id}: не найдено поле для ввода кода")
-                
+
         except Exception as e:
             logger.error(f"❌ Окно {window_id}: ошибка ввода кода: {e}")
 
     async def register_account_with_context(self, context, window_id: int) -> bool:
         """Регистрирует один аккаунт TikTok с готовым контекстом"""
-        
+
         # Генерируем данные для аккаунта
         email_data = await self.data_generator.generate_email(window_id=window_id)
         email = email_data["email"]
         email_password = email_data["password"]
         account_id = email_data["account_id"]
-        
+
         password = self.data_generator.generate_password()
         birth_date = self.data_generator.generate_birth_date()
         username = self.data_generator.generate_username(self.username_prefix) if self.username_prefix else ""
-        
+
         # Начинаем регистрацию
         logger.info(f"📫 Окно {window_id}: Email account_id={account_id}")
         logger.info(f"👤 Окно {window_id}: Никнейм: {username}")
-        
+
         try:
             # Создаём новую страницу в рамках контекста (анонимного)
             page = await context.new_page()
             page.set_default_timeout(self.config.page_load_timeout * 1000)
-            
+
             try:
                 # Применяем stealth с правильными параметрами
                 try:
@@ -2158,33 +2228,33 @@ class TikTokRegistration:
                     await stealth_async(page, stealth_config)
                 except Exception as e:
                     logger.warning(f"Окно {window_id}: не удалось применить stealth: {e}")
-                
+
                 # Настраиваем капча solver
                 captcha_solver = CaptchaSolver(
                     page,
                     self.config.sadcaptcha_api_key,
                     self.config
                 )
-                
+
                 # Переходим на страницу регистрации TikTok
                 await page.goto("https://www.tiktok.com/signup/phone-or-email/email", timeout=60000)
                 logger.info(f"🌍 Окно {window_id}: перешли на страницу регистрации")
-                
+
                 # Ждём появления формы
                 await asyncio.sleep(3)
-                
+
                 # Проверяем капчу
                 await captcha_solver.solve_captcha_if_present()
-                
+
                 # ИСПРАВЛЕНИЕ: Используем полный метод заполнения формы вместо упрощенного
                 logger.info(f"✍️ Окно {window_id}: заполняем форму полным методом")
                 success = await self._fill_registration_form(page, email, password, birth_date, captcha_solver, email_password, account_id, username)
-                
+
                 if success:
                     # Проверяем успешность регистрации
                     await asyncio.sleep(5)
                     current_url = page.url
-                    
+
                     if "signup" not in current_url.lower() and "register" not in current_url.lower():
                         # Успешная регистрация
                         self._save_account(email, password, username)
@@ -2199,10 +2269,10 @@ class TikTokRegistration:
                     logger.error(f"❌ Окно {window_id}: ошибка заполнения формы")
                     self.failed_count += 1
                     return False
-                    
+
             finally:
                 await page.close()
-                
+
         except Exception as e:
             logger.error(f"❌ Окно {window_id}: ошибка регистрации {email}: {e}")
             self.failed_count += 1
@@ -2249,7 +2319,7 @@ def main():
                     print("Количество должно быть больше нуля!")
             except ValueError:
                 print("Пожалуйста, введите корректное число!")
-        
+
         # Запрашиваем количество окон для параллельной работы
         while True:
             try:
@@ -2266,9 +2336,9 @@ def main():
         print("Нажмите Ctrl+C для остановки\n")
 
         # Запрашиваем префикс для никнеймов
-        username_prefix = input("Введите префикс для никнеймов (например: aiogramxd): ").strip()
+        username_prefix = input("Введите префикс для никнеймов (нажмите Enter чтобы пропустить никнейм): ").strip()
         if not username_prefix:
-            print("⚠️ Префикс не указан. Никнеймы не будут заполняться.")
+            print("⏭️  Никнейм будет пропущен автоматически.")
         else:
             print(f"👤 Никнеймы будут в формате: {username_prefix}_хххххххх")
 
